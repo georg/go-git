@@ -109,6 +109,26 @@ func TestIndexSuite(t *testing.T) {
 	suite.Run(t, new(IndexSuite))
 }
 
+func (s *IndexSuite) TestFindOffset() {
+	idx, err := fixtureIndex()
+	s.NoError(err)
+
+	for i, h := range fixtureHashes {
+		off, err := idx.FindOffset(h)
+		s.NoError(err)
+		s.Equal(fixtureOffsets[i], off)
+	}
+}
+
+func (s *IndexSuite) TestFindOffsetNotFound() {
+	idx, err := fixtureIndex()
+	s.NoError(err)
+
+	absent := plumbing.NewHash("0000000000000000000000000000000000000000")
+	_, err = idx.FindOffset(absent)
+	s.ErrorIs(err, plumbing.ErrObjectNotFound)
+}
+
 func (s *IndexSuite) TestFindHash() {
 	idx, err := fixtureIndex()
 	s.NoError(err)

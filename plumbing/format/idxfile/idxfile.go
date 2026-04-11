@@ -1,6 +1,7 @@
 package idxfile
 
 import (
+	"bytes"
 	"crypto"
 	encbin "encoding/binary"
 	"fmt"
@@ -84,7 +85,11 @@ func NewMemoryIndex(objectIDSize int) *MemoryIndex {
 }
 
 func (idx *MemoryIndex) findHashIndex(h plumbing.Hash) (int, bool) {
-	k := idx.FanoutMapping[h.Bytes()[0]]
+	hash := h.Bytes()
+	return idx.findHashIndexBytes(hash, idx.FanoutMapping[hash[0]])
+}
+
+func (idx *MemoryIndex) findHashIndexBytes(hash []byte, k int) (int, bool) {
 	if k == noMapping {
 		return 0, false
 	}
@@ -99,12 +104,13 @@ func (idx *MemoryIndex) findHashIndex(h plumbing.Hash) (int, bool) {
 		return 0, false
 	}
 
+	size := uint64(idx.idSize())
 	low := uint64(0)
 	for {
 		mid := (low + high) >> 1
-		offset := mid * uint64(idx.idSize())
+		offset := mid * size
 
-		cmp := h.Compare(data[offset : offset+uint64(idx.idSize())])
+		cmp := bytes.Compare(hash, data[offset : offset+size])
 		switch {
 		case cmp < 0:
 			high = mid
@@ -141,17 +147,7 @@ func (idx *MemoryIndex) FindOffset(h plumbing.Hash) (int64, error) {
 		return 0, plumbing.ErrObjectNotFound
 	}
 
-	offset := idx.getOffset(k, i)
-
-	// Save the offset for reverse lookup
-	idx.mu.Lock()
-	if idx.offsetHash == nil {
-		idx.offsetHash = make(map[int64]plumbing.Hash)
-	}
-	idx.offsetHash[int64(offset)] = h
-	idx.mu.Unlock()
-
-	return int64(offset), nil
+	return int64(idx.getOffset(k, i)), nil
 }
 
 const isO64Mask = uint64(1) << 31
@@ -171,8 +167,9 @@ func (idx *MemoryIndex) getOffset(firstLevel, secondLevel int) uint64 {
 
 // FindCRC32 implements the Index interface.
 func (idx *MemoryIndex) FindCRC32(h plumbing.Hash) (uint32, error) {
-	k := idx.FanoutMapping[h.Bytes()[0]]
-	i, ok := idx.findHashIndex(h)
+	hash := h.Bytes()
+	k := idx.FanoutMapping[hash[0]]
+	i, ok := idx.findHashIndexBytes(hash, k)
 	if !ok {
 		return 0, plumbing.ErrObjectNotFound
 	}

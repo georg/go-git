@@ -69,6 +69,50 @@ func (s *SuiteDotGit) TestModuleAcceptsBenignNames() {
 	}
 }
 
+func (s *SuiteDotGit) TestReferenceNameRejectsEscapingNames() {
+	d := New(s.EmptyFS())
+	s.Require().NoError(d.Initialize())
+
+	// A ".." component (or a control character) lets a reference name climb
+	// out of its sub-tree into unrelated .git metadata such as config; a
+	// malicious remote can advertise such a name and, after refspec mapping,
+	// have it reach the storage layer.
+	bad := []plumbing.ReferenceName{
+		"refs/heads/../../config",
+		"refs/remotes/origin/../../../config",
+		"refs/heads/..",
+		"refs/heads/foo\x00bar",
+	}
+	for _, n := range bad {
+		ref := plumbing.NewHashReference(n, plumbing.NewHash("e8d3ffab552895c19b9fcf7aa264d277cde33881"))
+		s.ErrorIs(d.SetRef(ref, nil), ErrReferenceNameEscape, "SetRef %q", n)
+
+		_, err := d.Ref(n)
+		s.ErrorIs(err, ErrReferenceNameEscape, "Ref %q", n)
+
+		s.ErrorIs(d.RemoveRef(n), ErrReferenceNameEscape, "RemoveRef %q", n)
+
+		_, err = d.ReflogWriter(n)
+		s.ErrorIs(err, ErrReferenceNameEscape, "ReflogWriter %q", n)
+	}
+
+	// The rejected traversals must not have written .git/config.
+	_, err := d.fs.Stat(configPath)
+	s.Error(err, "traversal must not create .git/config")
+}
+
+func (s *SuiteDotGit) TestReferenceNameAcceptsBenignNames() {
+	d := New(s.EmptyFS())
+	for _, n := range []plumbing.ReferenceName{
+		"HEAD", "ORIG_HEAD", "FETCH_HEAD",
+		"refs/heads/main", "refs/heads/release-1.2",
+		"refs/tags/v1.0.0", "refs/remotes/origin/HEAD", "refs/stash",
+	} {
+		ref := plumbing.NewHashReference(n, plumbing.NewHash("e8d3ffab552895c19b9fcf7aa264d277cde33881"))
+		s.Require().NoError(d.SetRef(ref, nil), "SetRef %q", n)
+	}
+}
+
 func (s *SuiteDotGit) TestInitialize() {
 	fs := s.EmptyFS()
 

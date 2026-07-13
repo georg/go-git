@@ -282,6 +282,31 @@ func (s *RemoteSuite) TestFetchWithAllTags() {
 	})
 }
 
+func (s *RemoteSuite) TestFetchDoesNotClobberExistingTag() {
+	sto := memory.NewStorage()
+
+	// A tag the user has already pinned to a specific object.
+	pinned := plumbing.NewReferenceFromStrings("refs/tags/v1.0.0", "918c48b83bd081e863dbe1b80f8998f058cd8294")
+	s.Require().NoError(sto.SetReference(pinned))
+
+	r := NewRemote(sto, &config.RemoteConfig{
+		URLs: []string{s.GetBasicLocalRepositoryURL()},
+	})
+
+	// The remote advertises refs/tags/v1.0.0 at a different object. A default
+	// fetch auto-follows tags, but must not move a tag that already exists.
+	err := r.Fetch(&FetchOptions{
+		RefSpecs: []config.RefSpec{
+			config.RefSpec("+refs/heads/*:refs/remotes/origin/*"),
+		},
+	})
+	s.NoError(err)
+
+	got, err := sto.Reference("refs/tags/v1.0.0")
+	s.Require().NoError(err)
+	s.Equal(pinned.Hash(), got.Hash())
+}
+
 func (s *RemoteSuite) TestFetchWithNoTags() {
 	r := NewRemote(memory.NewStorage(), &config.RemoteConfig{
 		URLs: []string{s.GetLocalRepositoryURL(fixtures.ByTag("tags").One())},

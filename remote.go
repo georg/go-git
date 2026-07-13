@@ -1327,6 +1327,18 @@ func (r *Remote) buildFetchedTags(refs memory.ReferenceStorage) (updated bool, e
 			return false, err
 		}
 
+		// An auto-followed tag only creates one that is missing locally; it
+		// never moves a tag that already points elsewhere. This mirrors git's
+		// "would clobber existing tag" refusal and keeps a remote from silently
+		// repointing a pinned local tag on fetch/pull.
+		old, err := r.s.Reference(ref.Name())
+		if err != nil && !errors.Is(err, plumbing.ErrReferenceNotFound) {
+			return updated, err
+		}
+		if err == nil && old.Hash() != ref.Hash() {
+			continue
+		}
+
 		refUpdated, err := updateReferenceStorerIfNeeded(r.s, ref)
 		if err != nil {
 			return updated, err

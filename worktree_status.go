@@ -398,6 +398,7 @@ func (w *Worktree) doAdd(path string, ignorePattern []gitignore.Pattern, skipSta
 		}
 		path = relPath
 	}
+	path = filepath.ToSlash(path)
 
 	if err != nil || !fi.IsDir() {
 		added, h, err = w.doAddFile(cfg, idx, s, path, ignorePattern)

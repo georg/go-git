@@ -307,6 +307,31 @@ func (s *RemoteSuite) TestFetchDoesNotClobberExistingTag() {
 	s.Equal(pinned.Hash(), got.Hash())
 }
 
+func (s *RemoteSuite) TestFetchForcedTagRefSpecClobbersExistingTag() {
+	sto := memory.NewStorage()
+
+	pinned := plumbing.NewReferenceFromStrings("refs/tags/v1.0.0", "918c48b83bd081e863dbe1b80f8998f058cd8294")
+	s.Require().NoError(sto.SetReference(pinned))
+
+	r := NewRemote(sto, &config.RemoteConfig{
+		URLs: []string{s.GetBasicLocalRepositoryURL()},
+	})
+
+	// The clobber refusal only applies to auto-followed tags. An explicit
+	// forced tag refspec is the user asking for the update, so it must still
+	// move the existing tag.
+	err := r.Fetch(&FetchOptions{
+		RefSpecs: []config.RefSpec{
+			config.RefSpec("+refs/tags/*:refs/tags/*"),
+		},
+	})
+	s.NoError(err)
+
+	got, err := sto.Reference("refs/tags/v1.0.0")
+	s.Require().NoError(err)
+	s.Equal(plumbing.NewHash("6ecf0ef2c2dffb796033e5a02219af86ec6584e5"), got.Hash())
+}
+
 func (s *RemoteSuite) TestFetchWithNoTags() {
 	r := NewRemote(memory.NewStorage(), &config.RemoteConfig{
 		URLs: []string{s.GetLocalRepositoryURL(fixtures.ByTag("tags").One())},

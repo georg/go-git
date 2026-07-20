@@ -979,7 +979,7 @@ func getHaves(
 	return result, nil
 }
 
-const refspecAllTags = "+refs/tags/*:refs/tags/*"
+const refspecAllTags = "refs/tags/*:refs/tags/*"
 
 func calculateRefs(
 	spec []config.RefSpec,
@@ -1263,6 +1263,11 @@ func (r *Remote) updateLocalReferenceStorage(
 			old, _ := storer.ResolveReference(r.s, localName)
 			newRef := plumbing.NewHashReference(localName, ref.Hash())
 
+			if old != nil && localName.IsTag() && old.Hash() != newRef.Hash() && !force && !spec.IsForceUpdate() {
+				forceNeeded = true
+				continue
+			}
+
 			// If the ref exists locally as a non-tag and force is not
 			// specified, only update if the new ref is an ancestor of the old
 			if old != nil && !old.Name().IsTag() && !force && !spec.IsForceUpdate() {
@@ -1296,13 +1301,16 @@ func (r *Remote) updateLocalReferenceStorage(
 	if isWildcard {
 		tags = remoteRefs
 	}
-	tagUpdated, err := r.buildFetchedTags(tags)
+	tagUpdated, tagForceNeeded, err := r.buildFetchedTags(tags, tagMode == plumbing.AllTags, force)
 	if err != nil {
 		return updated, err
 	}
 
 	if tagUpdated {
 		updated = true
+	}
+	if tagForceNeeded {
+		forceNeeded = true
 	}
 
 	if forceNeeded {
@@ -1312,7 +1320,7 @@ func (r *Remote) updateLocalReferenceStorage(
 	return updated, err
 }
 
-func (r *Remote) buildFetchedTags(refs memory.ReferenceStorage) (updated bool, err error) {
+func (r *Remote) buildFetchedTags(refs memory.ReferenceStorage, allTags, force bool) (updated, forceNeeded bool, err error) {
 	for _, ref := range refs {
 		if !ref.Name().IsTag() {
 			continue
@@ -1324,24 +1332,28 @@ func (r *Remote) buildFetchedTags(refs memory.ReferenceStorage) (updated bool, e
 		}
 
 		if err != nil {
-			return false, err
+			return updated, forceNeeded, err
 		}
 
-		// An auto-followed tag only creates one that is missing locally; it
-		// never moves a tag that already points elsewhere. This mirrors git's
-		// "would clobber existing tag" refusal and keeps a remote from silently
-		// repointing a pinned local tag on fetch/pull.
 		old, err := r.s.Reference(ref.Name())
 		if err != nil && !errors.Is(err, plumbing.ErrReferenceNotFound) {
-			return updated, err
+			return updated, forceNeeded, err
 		}
 		if err == nil && old.Hash() != ref.Hash() {
-			continue
+			if !allTags {
+				// An auto-followed tag only creates one that is missing locally; it
+				// never moves a tag that already points elsewhere.
+				continue
+			}
+			if !force {
+				forceNeeded = true
+				continue
+			}
 		}
 
 		refUpdated, err := updateReferenceStorerIfNeeded(r.s, ref)
 		if err != nil {
-			return updated, err
+			return updated, forceNeeded, err
 		}
 
 		if refUpdated {
@@ -1349,7 +1361,7 @@ func (r *Remote) buildFetchedTags(refs memory.ReferenceStorage) (updated bool, e
 		}
 	}
 
-	return updated, err
+	return updated, forceNeeded, err
 }
 
 // ListContext lists the references on the remote repository.

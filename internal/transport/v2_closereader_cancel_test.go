@@ -56,6 +56,10 @@ func TestFetchV2SkipsCloseReaderOnCancel(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	r := newCountingBlockingReadCloser()
+	// The assertions below rely on the orphaned NewContextReader goroutine
+	// staying blocked in Read; release it once the test is done so it does
+	// not outlive the test as a leaked goroutine.
+	t.Cleanup(func() { close(r.unblock) })
 
 	round := func(_ *packp.FetchArgs) (*packp.FetchOutput, io.Reader, error) {
 		return &packp.FetchOutput{Packfile: true}, r, nil
